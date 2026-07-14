@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -31,6 +32,7 @@ export class BookingsController {
     return this.bookingsService.getAvailableTimeslots(serviceId, date);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post()
   async create(
     @Body() dto: CreateBookingDto,

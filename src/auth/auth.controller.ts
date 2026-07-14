@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService, AuthTokens } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -26,6 +27,7 @@ export class AuthController {
     private readonly configService: ConfigService,
   ) {}
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
@@ -66,11 +68,16 @@ export class AuthController {
 
   private setAuthCookies(res: Response, tokens: AuthTokens) {
     const isProduction = this.configService.get('NODE_ENV') === 'production';
+    // Frontend (Vercel) and backend (Railway) are different origins, so the
+    // cookie must be SameSite=None to be sent on cross-site fetch requests.
+    // SameSite=None requires Secure, which requires HTTPS, so we fall back
+    // to Lax/non-secure for local HTTP development.
+    const sameSite = isProduction ? 'none' : 'lax';
 
     res.cookie(ACCESS_TOKEN_COOKIE, tokens.accessToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite,
       maxAge: 15 * 60 * 1000,
       path: '/',
     });
@@ -78,7 +85,7 @@ export class AuthController {
     res.cookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite,
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: '/',
     });
