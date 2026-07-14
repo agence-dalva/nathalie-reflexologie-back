@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "releaseCommand": "npm run prisma:migrate:deploy",
+    "preDeployCommand": "npm run prisma:migrate:deploy",
     "startCommand": "npm run start:prod",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
