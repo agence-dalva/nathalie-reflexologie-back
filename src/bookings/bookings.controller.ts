@@ -32,6 +32,15 @@ export class BookingsController {
     return this.bookingsService.getAvailableTimeslots(serviceId, date);
   }
 
+  @Get('availability-days')
+  getAvailabilityDays(
+    @Query('serviceId', ParseIntPipe) serviceId: number,
+    @Query('from') from: string,
+    @Query('days', ParseIntPipe) days: number,
+  ) {
+    return this.bookingsService.getAvailableDays(serviceId, from, days);
+  }
+
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post()
   async create(

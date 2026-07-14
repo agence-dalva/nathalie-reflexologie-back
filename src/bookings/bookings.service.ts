@@ -31,6 +31,10 @@ export class BookingsService {
     return this.timeslotsService.getAvailableTimeslots(serviceId, date);
   }
 
+  async getAvailableDays(serviceId: number, from: string, dayCount: number) {
+    return this.timeslotsService.getAvailableDays(serviceId, from, dayCount);
+  }
+
   async create(
     dto: CreateBookingDto,
     idempotencyKey?: string,

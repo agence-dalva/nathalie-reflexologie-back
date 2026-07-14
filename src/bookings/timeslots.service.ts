@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { addMinutes, isBefore } from 'date-fns';
+import { addDays, addMinutes, isBefore } from 'date-fns';
 import { fromZonedTime, toZonedTime } from 'date-fns-tz';
 import { AvailabilityService } from '../availability/availability.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -80,6 +80,36 @@ export class TimeslotsService {
         (booking) => slot.startsAt < booking.endsAt && booking.startsAt < slot.endsAt,
       );
     });
+  }
+
+  /**
+   * Renvoie les dates (YYYY-MM-DD) ayant au moins un créneau disponible,
+   * sur `dayCount` jours à partir de `startDateStr` inclus.
+   */
+  async getAvailableDays(
+    serviceId: number,
+    startDateStr: string,
+    dayCount: number,
+  ): Promise<string[]> {
+    const [year, month, day] = startDateStr.split('-').map(Number);
+    const startDate = new Date(Date.UTC(year, month - 1, day));
+
+    const availableDays: string[] = [];
+    for (let i = 0; i < dayCount; i++) {
+      const dateStr = this.toDateKey(addDays(startDate, i));
+      const slots = await this.getAvailableTimeslots(serviceId, dateStr);
+      if (slots.length > 0) {
+        availableDays.push(dateStr);
+      }
+    }
+    return availableDays;
+  }
+
+  private toDateKey(date: Date): string {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private async getOpenRangesForDate(
