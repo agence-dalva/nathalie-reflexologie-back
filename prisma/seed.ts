@@ -104,28 +104,29 @@ async function main() {
     throw new Error('ADMIN_SEED_EMAIL et ADMIN_SEED_PASSWORD doivent être définis dans .env');
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
+  const existingAdmin = await prisma.adminUser.findUnique({ where: { email } });
+  if (existingAdmin) {
+    console.log(`Compte admin déjà existant, inchangé : ${existingAdmin.email}`);
+  } else {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const admin = await prisma.adminUser.create({
+      data: { email, passwordHash, name: 'Nathalie' },
+    });
+    console.log(`Compte admin créé : ${admin.email}`);
+  }
 
-  const admin = await prisma.adminUser.upsert({
-    where: { email },
-    update: { passwordHash },
-    create: { email, passwordHash, name: 'Nathalie' },
-  });
-
-  console.log(`Compte admin prêt : ${admin.email}`);
-
+  let created = 0;
   for (const service of services) {
     const existing = await prisma.service.findFirst({
       where: { name: service.name },
     });
-    if (existing) {
-      await prisma.service.update({ where: { id: existing.id }, data: service });
-    } else {
+    if (!existing) {
       await prisma.service.create({ data: service });
+      created++;
     }
   }
 
-  console.log(`${services.length} prestations à jour.`);
+  console.log(`${created} nouvelle(s) prestation(s) créée(s) sur ${services.length} définies.`);
 }
 
 main()
