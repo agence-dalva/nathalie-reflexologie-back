@@ -72,7 +72,7 @@ export class MailService {
     const timeLabel = this.formatTime(booking.startsAt);
     const html = renderBookingEmailHtml({
       title: 'Rappel de votre rendez-vous',
-      bodyText: `Bonjour ${booking.customerFirstname},\n\nPetit rappel : vous avez rendez-vous demain pour "${booking.service.name}" à ${timeLabel} (${dateLabel}).`,
+      bodyText: `Bonjour ${booking.customerFirstname} ${booking.customerLastname},\n\nPetit rappel : vous avez rendez-vous demain pour "${booking.service.name}" à ${timeLabel} (${dateLabel}).`,
       logoUrl: this.logoUrl,
     });
     await this.send(booking.customerEmail, subject, html);

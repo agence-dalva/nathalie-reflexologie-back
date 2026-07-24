@@ -6,7 +6,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAvailabilityDto } from './dto/create-availability.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
+import { CreateExceptionRangeDto } from './dto/create-exception-range.dto';
 import { dateToTimeString, timeStringToDate } from './time.util';
+import { getFrenchPublicHolidays } from './french-holidays.util';
 
 function serializeAvailability(availability: {
   id: number;
@@ -33,7 +35,9 @@ function serializeException(exception: {
     id: exception.id,
     date: exception.date.toISOString().slice(0, 10),
     isClosed: exception.isClosed,
-    startTime: exception.startTime ? dateToTimeString(exception.startTime) : null,
+    startTime: exception.startTime
+      ? dateToTimeString(exception.startTime)
+      : null,
     endTime: exception.endTime ? dateToTimeString(exception.endTime) : null,
   };
 }
@@ -65,7 +69,9 @@ export class AvailabilityService {
   }
 
   async removeAvailability(id: number) {
-    const existing = await this.prisma.availability.findUnique({ where: { id } });
+    const existing = await this.prisma.availability.findUnique({
+      where: { id },
+    });
     if (!existing) {
       throw new NotFoundException('Créneau récurrent introuvable');
     }
@@ -80,30 +86,51 @@ export class AvailabilityService {
   }
 
   async createException(dto: CreateExceptionDto) {
-    if (!dto.isClosed && (!dto.startTime || !dto.endTime)) {
+    this.validateExceptionTimes(dto.isClosed, dto.startTime, dto.endTime);
+    const exception = await this.upsertException(
+      dto.date,
+      dto.isClosed,
+      dto.startTime,
+      dto.endTime,
+    );
+    return serializeException(exception);
+  }
+
+  async createExceptionRange(dto: CreateExceptionRangeDto) {
+    this.validateExceptionTimes(dto.isClosed, dto.startTime, dto.endTime);
+
+    const start = new Date(`${dto.startDate}T00:00:00.000Z`);
+    const end = new Date(`${dto.endDate}T00:00:00.000Z`);
+    if (start > end) {
       throw new BadRequestException(
-        'startTime et endTime sont requis pour un jour aux horaires modifiés',
+        'startDate doit être avant ou égal à endDate',
       );
     }
-    if (dto.startTime && dto.endTime && dto.startTime >= dto.endTime) {
-      throw new BadRequestException('startTime doit être avant endTime');
+
+    const dates: string[] = [];
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
     }
 
-    const exception = await this.prisma.exception.upsert({
-      where: { date: new Date(dto.date) },
-      create: {
-        date: new Date(dto.date),
-        isClosed: dto.isClosed,
-        startTime: dto.startTime ? timeStringToDate(dto.startTime) : null,
-        endTime: dto.endTime ? timeStringToDate(dto.endTime) : null,
-      },
-      update: {
-        isClosed: dto.isClosed,
-        startTime: dto.startTime ? timeStringToDate(dto.startTime) : null,
-        endTime: dto.endTime ? timeStringToDate(dto.endTime) : null,
-      },
-    });
-    return serializeException(exception);
+    const exceptions = await Promise.all(
+      dates.map((date) =>
+        this.upsertException(date, dto.isClosed, dto.startTime, dto.endTime),
+      ),
+    );
+    return exceptions.map(serializeException);
+  }
+
+  async importFrenchHolidays(year: number) {
+    const holidays = getFrenchPublicHolidays(year);
+    const exceptions = await Promise.all(
+      holidays.map((holiday) => this.upsertException(holiday.date, true)),
+    );
+    return exceptions.map(serializeException);
+  }
+
+  async removeAllExceptions() {
+    const { count } = await this.prisma.exception.deleteMany({});
+    return { count };
   }
 
   async removeException(id: number) {
@@ -112,5 +139,42 @@ export class AvailabilityService {
       throw new NotFoundException('Exception introuvable');
     }
     await this.prisma.exception.delete({ where: { id } });
+  }
+
+  private validateExceptionTimes(
+    isClosed: boolean,
+    startTime?: string,
+    endTime?: string,
+  ) {
+    if (!isClosed && (!startTime || !endTime)) {
+      throw new BadRequestException(
+        'startTime et endTime sont requis pour un jour aux horaires modifiés',
+      );
+    }
+    if (startTime && endTime && startTime >= endTime) {
+      throw new BadRequestException('startTime doit être avant endTime');
+    }
+  }
+
+  private async upsertException(
+    date: string,
+    isClosed: boolean,
+    startTime?: string,
+    endTime?: string,
+  ) {
+    return this.prisma.exception.upsert({
+      where: { date: new Date(date) },
+      create: {
+        date: new Date(date),
+        isClosed,
+        startTime: startTime ? timeStringToDate(startTime) : null,
+        endTime: endTime ? timeStringToDate(endTime) : null,
+      },
+      update: {
+        isClosed,
+        startTime: startTime ? timeStringToDate(startTime) : null,
+        endTime: endTime ? timeStringToDate(endTime) : null,
+      },
+    });
   }
 }
