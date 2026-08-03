@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateServiceDto } from './dto/create-service.dto';
+import { ReorderServicesDto } from './dto/reorder-services.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 
 @Injectable()
@@ -14,13 +15,13 @@ export class ServicesService {
   findAllPublic() {
     return this.prisma.service.findMany({
       where: { active: true },
-      orderBy: { name: 'asc' },
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
     });
   }
 
   findAllAdmin() {
     return this.prisma.service.findMany({
-      orderBy: { name: 'asc' },
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
     });
   }
 
@@ -54,5 +55,17 @@ export class ServicesService {
     }
 
     await this.prisma.service.delete({ where: { id } });
+  }
+
+  async reorder(dto: ReorderServicesDto) {
+    await this.prisma.$transaction(
+      dto.ids.map((id, index) =>
+        this.prisma.service.update({
+          where: { id },
+          data: { order: index },
+        }),
+      ),
+    );
+    return this.findAllAdmin();
   }
 }

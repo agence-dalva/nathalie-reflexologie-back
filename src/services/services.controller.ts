@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateServiceDto } from './dto/create-service.dto';
+import { ReorderServicesDto } from './dto/reorder-services.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { ServicesService } from './services.service';
 
@@ -28,6 +29,12 @@ export class ServicesController {
   @Get('admin')
   findAllAdmin() {
     return this.servicesService.findAllAdmin();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('reorder')
+  reorder(@Body() dto: ReorderServicesDto) {
+    return this.servicesService.reorder(dto);
   }
 
   @Get(':id')
