@@ -7,13 +7,16 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import { ExceptionSource } from '../../generated/prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AvailabilityService } from './availability.service';
 import { CreateAvailabilityDto } from './dto/create-availability.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateExceptionRangeDto } from './dto/create-exception-range.dto';
+import { CreateExtraSlotDto } from './dto/create-extra-slot.dto';
 import { ImportFrenchHolidaysDto } from './dto/import-french-holidays.dto';
 
 @Controller('availability')
@@ -63,8 +66,8 @@ export class AvailabilityController {
 
   @UseGuards(JwtAuthGuard)
   @Delete('exceptions')
-  removeAllExceptions() {
-    return this.availabilityService.removeAllExceptions();
+  removeAllExceptions(@Query('source') source?: ExceptionSource) {
+    return this.availabilityService.removeAllExceptions(source);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -72,5 +75,23 @@ export class AvailabilityController {
   @HttpCode(204)
   removeException(@Param('id', ParseIntPipe) id: number) {
     return this.availabilityService.removeException(id);
+  }
+
+  @Get('extra-slots')
+  findAllExtraSlots() {
+    return this.availabilityService.findAllExtraSlots();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('extra-slots')
+  createExtraSlot(@Body() dto: CreateExtraSlotDto) {
+    return this.availabilityService.createExtraSlot(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('extra-slots/:id')
+  @HttpCode(204)
+  removeExtraSlot(@Param('id', ParseIntPipe) id: number) {
+    return this.availabilityService.removeExtraSlot(id);
   }
 }

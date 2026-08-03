@@ -22,6 +22,11 @@ enum EmailTemplateType {
   MODIFICATION
 }
 
+enum ExceptionSource {
+  MANUAL
+  HOLIDAY
+}
+
 model AdminUser {
   id           Int      @id @default(autoincrement())
   email        String   @unique
@@ -60,7 +65,8 @@ model Service {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  bookings Booking[]
+  bookings   Booking[]
+  extraSlots ExtraSlot[]
 
   @@map("services")
 }
@@ -79,38 +85,56 @@ model Availability {
 
 // Jours fermés / vacances / horaires modifiés ponctuellement
 model Exception {
-  id        Int      @id @default(autoincrement())
-  date      DateTime @db.Date
-  isClosed  Boolean  @default(true) @map("is_closed")
-  startTime DateTime? @map("start_time") @db.Time()
-  endTime   DateTime? @map("end_time") @db.Time()
-  createdAt DateTime @default(now()) @map("created_at")
+  id        Int             @id @default(autoincrement())
+  date      DateTime        @db.Date
+  isClosed  Boolean         @default(true) @map("is_closed")
+  startTime DateTime?       @map("start_time") @db.Time()
+  endTime   DateTime?       @map("end_time") @db.Time()
+  source    ExceptionSource @default(MANUAL)
+  createdAt DateTime        @default(now()) @map("created_at")
 
   @@unique([date])
   @@map("exceptions")
 }
 
+// Créneau ponctuel ajouté à la volée, en plus des horaires récurrents,
+// pour une prestation précise et une date précise (ex: un mercredi normalement
+// fermé où une place se libère pour une prestation donnée).
+model ExtraSlot {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @db.Date
+  startTime DateTime @map("start_time") @db.Time()
+  endTime   DateTime @map("end_time") @db.Time()
+  serviceId Int      @map("service_id")
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@index([serviceId])
+  @@map("extra_slots")
+}
+
 model Booking {
-  id                 Int           @id @default(autoincrement())
-  serviceId          Int           @map("service_id")
-  service            Service       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  clientId           Int?          @map("client_id")
-  client             Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  customerFirstname  String        @map("customer_firstname")
-  customerLastname   String        @map("customer_lastname")
-  customerEmail      String        @map("customer_email")
-  customerPhone      String?       @map("customer_phone")
-  beneficiaryFirstname String?     @map("beneficiary_firstname")
-  beneficiaryLastname  String?     @map("beneficiary_lastname")
-  beneficiaryPhone     String?     @map("beneficiary_phone")
-  notes              String?
-  startsAt           DateTime      @map("starts_at") @db.Timestamptz()
-  endsAt             DateTime      @map("ends_at") @db.Timestamptz()
-  status             BookingStatus @default(CONFIRMED)
-  cancelToken        String        @default(uuid()) @map("cancel_token")
-  idempotencyKey     String?       @unique @map("idempotency_key")
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
+  id                   Int           @id @default(autoincrement())
+  serviceId            Int           @map("service_id")
+  service              Service       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  clientId             Int?          @map("client_id")
+  client               Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  customerFirstname    String        @map("customer_firstname")
+  customerLastname     String        @map("customer_lastname")
+  customerEmail        String        @map("customer_email")
+  customerPhone        String?       @map("customer_phone")
+  beneficiaryFirstname String?       @map("beneficiary_firstname")
+  beneficiaryLastname  String?       @map("beneficiary_lastname")
+  beneficiaryPhone     String?       @map("beneficiary_phone")
+  notes                String?
+  startsAt             DateTime      @map("starts_at") @db.Timestamptz()
+  endsAt               DateTime      @map("ends_at") @db.Timestamptz()
+  status               BookingStatus @default(CONFIRMED)
+  cancelToken          String        @default(uuid()) @map("cancel_token")
+  idempotencyKey       String?       @unique @map("idempotency_key")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
 
   @@index([startsAt])
   @@index([customerEmail])

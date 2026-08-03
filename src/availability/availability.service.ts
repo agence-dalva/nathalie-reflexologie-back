@@ -3,10 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ExceptionSource } from '../../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAvailabilityDto } from './dto/create-availability.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateExceptionRangeDto } from './dto/create-exception-range.dto';
+import { CreateExtraSlotDto } from './dto/create-extra-slot.dto';
 import { dateToTimeString, timeStringToDate } from './time.util';
 import { getFrenchPublicHolidays } from './french-holidays.util';
 
@@ -30,6 +32,7 @@ function serializeException(exception: {
   isClosed: boolean;
   startTime: Date | null;
   endTime: Date | null;
+  source: ExceptionSource;
 }) {
   return {
     id: exception.id,
@@ -39,6 +42,23 @@ function serializeException(exception: {
       ? dateToTimeString(exception.startTime)
       : null,
     endTime: exception.endTime ? dateToTimeString(exception.endTime) : null,
+    source: exception.source,
+  };
+}
+
+function serializeExtraSlot(extraSlot: {
+  id: number;
+  date: Date;
+  startTime: Date;
+  endTime: Date;
+  serviceId: number;
+}) {
+  return {
+    id: extraSlot.id,
+    date: extraSlot.date.toISOString().slice(0, 10),
+    startTime: dateToTimeString(extraSlot.startTime),
+    endTime: dateToTimeString(extraSlot.endTime),
+    serviceId: extraSlot.serviceId,
   };
 }
 
@@ -123,13 +143,23 @@ export class AvailabilityService {
   async importFrenchHolidays(year: number) {
     const holidays = getFrenchPublicHolidays(year);
     const exceptions = await Promise.all(
-      holidays.map((holiday) => this.upsertException(holiday.date, true)),
+      holidays.map((holiday) =>
+        this.upsertException(
+          holiday.date,
+          true,
+          undefined,
+          undefined,
+          ExceptionSource.HOLIDAY,
+        ),
+      ),
     );
     return exceptions.map(serializeException);
   }
 
-  async removeAllExceptions() {
-    const { count } = await this.prisma.exception.deleteMany({});
+  async removeAllExceptions(source?: ExceptionSource) {
+    const { count } = await this.prisma.exception.deleteMany({
+      where: source ? { source } : undefined,
+    });
     return { count };
   }
 
@@ -161,6 +191,7 @@ export class AvailabilityService {
     isClosed: boolean,
     startTime?: string,
     endTime?: string,
+    source: ExceptionSource = ExceptionSource.MANUAL,
   ) {
     return this.prisma.exception.upsert({
       where: { date: new Date(date) },
@@ -169,12 +200,54 @@ export class AvailabilityService {
         isClosed,
         startTime: startTime ? timeStringToDate(startTime) : null,
         endTime: endTime ? timeStringToDate(endTime) : null,
+        source,
       },
       update: {
         isClosed,
         startTime: startTime ? timeStringToDate(startTime) : null,
         endTime: endTime ? timeStringToDate(endTime) : null,
+        source,
       },
     });
+  }
+
+  async findAllExtraSlots() {
+    const extraSlots = await this.prisma.extraSlot.findMany({
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
+    });
+    return extraSlots.map(serializeExtraSlot);
+  }
+
+  async createExtraSlot(dto: CreateExtraSlotDto) {
+    if (dto.startTime >= dto.endTime) {
+      throw new BadRequestException('startTime doit être avant endTime');
+    }
+
+    const service = await this.prisma.service.findUnique({
+      where: { id: dto.serviceId },
+    });
+    if (!service) {
+      throw new NotFoundException('Prestation introuvable');
+    }
+
+    const extraSlot = await this.prisma.extraSlot.create({
+      data: {
+        date: new Date(dto.date),
+        startTime: timeStringToDate(dto.startTime),
+        endTime: timeStringToDate(dto.endTime),
+        serviceId: dto.serviceId,
+      },
+    });
+    return serializeExtraSlot(extraSlot);
+  }
+
+  async removeExtraSlot(id: number) {
+    const existing = await this.prisma.extraSlot.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Créneau ponctuel introuvable');
+    }
+    await this.prisma.extraSlot.delete({ where: { id } });
   }
 }

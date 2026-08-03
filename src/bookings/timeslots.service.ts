@@ -37,7 +37,7 @@ export class TimeslotsService {
     const service = await this.servicesService.findOne(serviceId);
     const slotLengthMinutes = service.durationMinutes + service.bufferMinutes;
 
-    const openRanges = await this.getOpenRangesForDate(dateStr);
+    const openRanges = await this.getOpenRangesForDate(dateStr, serviceId);
     if (openRanges.length === 0) {
       return [];
     }
@@ -114,30 +114,41 @@ export class TimeslotsService {
 
   private async getOpenRangesForDate(
     dateStr: string,
+    serviceId: number,
   ): Promise<Array<{ start: Date; end: Date }>> {
+    const extraSlots = await this.availabilityService.findAllExtraSlots();
+    const extraRanges = extraSlots
+      .filter((s) => s.date === dateStr && s.serviceId === serviceId)
+      .map((s) => ({
+        start: this.toBusinessDateTime(dateStr, s.startTime),
+        end: this.toBusinessDateTime(dateStr, s.endTime),
+      }));
+
     const exceptions = await this.availabilityService.findAllExceptions();
     const exception = exceptions.find((e) => e.date === dateStr);
 
     if (exception) {
       if (exception.isClosed || !exception.startTime || !exception.endTime) {
-        return [];
+        return extraRanges;
       }
       return [
         {
           start: this.toBusinessDateTime(dateStr, exception.startTime),
           end: this.toBusinessDateTime(dateStr, exception.endTime),
         },
+        ...extraRanges,
       ];
     }
 
     const weekday = this.getWeekday(dateStr);
     const availabilities = await this.availabilityService.findAllAvailabilities();
-    return availabilities
+    const recurringRanges = availabilities
       .filter((a) => a.weekday === weekday)
       .map((a) => ({
         start: this.toBusinessDateTime(dateStr, a.startTime),
         end: this.toBusinessDateTime(dateStr, a.endTime),
       }));
+    return [...recurringRanges, ...extraRanges];
   }
 
   private toBusinessDateTime(dateStr: string, time: string): Date {
