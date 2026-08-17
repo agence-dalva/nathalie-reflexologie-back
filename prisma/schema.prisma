@@ -66,7 +66,7 @@ model Service {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   bookings   Booking[]
-  extraSlots ExtraSlot[]
+  extraSlots ExtraSlot[] @relation("ExtraSlotServices")
 
   @@map("services")
 }
@@ -97,20 +97,18 @@ model Exception {
   @@map("exceptions")
 }
 
-// Créneau ponctuel ajouté à la volée, en plus des horaires récurrents,
-// pour une prestation précise et une date précise (ex: un mercredi normalement
-// fermé où une place se libère pour une prestation donnée).
+// Créneau ponctuel ajouté à la volée, en plus des horaires récurrents, sur une
+// date précise et pour une ou plusieurs prestations (ex: un mercredi normalement
+// fermé où une plage se libère, ouverte à toutes les prestations ou à quelques-unes).
 model ExtraSlot {
-  id        Int      @id @default(autoincrement())
-  date      DateTime @db.Date
-  startTime DateTime @map("start_time") @db.Time()
-  endTime   DateTime @map("end_time") @db.Time()
-  serviceId Int      @map("service_id")
-  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now()) @map("created_at")
+  id        Int       @id @default(autoincrement())
+  date      DateTime  @db.Date
+  startTime DateTime  @map("start_time") @db.Time()
+  endTime   DateTime  @map("end_time") @db.Time()
+  services  Service[] @relation("ExtraSlotServices")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([date])
-  @@index([serviceId])
   @@map("extra_slots")
 }
 
@@ -151,6 +149,12 @@ model Client {
   phone     String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Historique repris de l'ancien outil de réservation lors d'un import CSV :
+  // le détail des séances n'y était pas, seulement leur nombre et la date de la
+  // dernière. Ces deux champs ne sont jamais alimentés par l'application.
+  importedBookingsCount Int?      @map("imported_bookings_count")
+  importedLastBookingAt DateTime? @map("imported_last_booking_at") @db.Timestamptz()
 
   bookings Booking[]
 

@@ -51,14 +51,14 @@ function serializeExtraSlot(extraSlot: {
   date: Date;
   startTime: Date;
   endTime: Date;
-  serviceId: number;
+  services: { id: number }[];
 }) {
   return {
     id: extraSlot.id,
     date: extraSlot.date.toISOString().slice(0, 10),
     startTime: dateToTimeString(extraSlot.startTime),
     endTime: dateToTimeString(extraSlot.endTime),
-    serviceId: extraSlot.serviceId,
+    serviceIds: extraSlot.services.map((service) => service.id),
   };
 }
 
@@ -214,31 +214,62 @@ export class AvailabilityService {
   async findAllExtraSlots() {
     const extraSlots = await this.prisma.extraSlot.findMany({
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
+      include: { services: { select: { id: true } } },
     });
     return extraSlots.map(serializeExtraSlot);
   }
 
   async createExtraSlot(dto: CreateExtraSlotDto) {
-    if (dto.startTime >= dto.endTime) {
-      throw new BadRequestException('startTime doit être avant endTime');
+    const [extraSlot] = await this.createExtraSlots([dto]);
+    return extraSlot;
+  }
+
+  /**
+   * Enregistre plusieurs créneaux ponctuels d'un coup (le back-office permet
+   * d'en empiler avant de sauvegarder) : tout passe ou rien.
+   */
+  async createExtraSlots(dtos: CreateExtraSlotDto[]) {
+    for (const dto of dtos) {
+      if (dto.startTime >= dto.endTime) {
+        throw new BadRequestException(
+          `Le créneau ${dto.startTime} – ${dto.endTime} a une heure de fin avant son heure de début`,
+        );
+      }
     }
 
-    const service = await this.prisma.service.findUnique({
-      where: { id: dto.serviceId },
+    const serviceIds = [...new Set(dtos.flatMap((dto) => dto.serviceIds))];
+    const services = await this.prisma.service.findMany({
+      where: { id: { in: serviceIds } },
+      select: { id: true },
     });
-    if (!service) {
+    if (services.length !== serviceIds.length) {
       throw new NotFoundException('Prestation introuvable');
     }
 
-    const extraSlot = await this.prisma.extraSlot.create({
-      data: {
-        date: new Date(dto.date),
-        startTime: timeStringToDate(dto.startTime),
-        endTime: timeStringToDate(dto.endTime),
-        serviceId: dto.serviceId,
-      },
+    const extraSlots = await this.prisma.$transaction(
+      dtos.map((dto) =>
+        this.prisma.extraSlot.create({
+          data: {
+            date: new Date(dto.date),
+            startTime: timeStringToDate(dto.startTime),
+            endTime: timeStringToDate(dto.endTime),
+            services: {
+              connect: [...new Set(dto.serviceIds)].map((id) => ({ id })),
+            },
+          },
+          include: { services: { select: { id: true } } },
+        }),
+      ),
+    );
+    return extraSlots.map(serializeExtraSlot);
+  }
+
+  /** Vide tous les créneaux ponctuels d'une journée en une fois. */
+  async removeExtraSlotsByDate(date: string) {
+    const { count } = await this.prisma.extraSlot.deleteMany({
+      where: { date: new Date(date) },
     });
-    return serializeExtraSlot(extraSlot);
+    return { count };
   }
 
   async removeExtraSlot(id: number) {

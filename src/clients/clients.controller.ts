@@ -1,6 +1,15 @@
-import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ClientsService } from './clients.service';
+import { ImportClientsDto } from './dto/import-clients.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('clients')
@@ -10,6 +19,11 @@ export class ClientsController {
   @Get()
   findAll() {
     return this.clientsService.findAll();
+  }
+
+  @Post('import')
+  importMany(@Body() dto: ImportClientsDto) {
+    return this.clientsService.importMany(dto.clients);
   }
 
   @Get(':id')

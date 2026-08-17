@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsString, Matches } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsDateString,
+  IsInt,
+  IsString,
+  Matches,
+} from 'class-validator';
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -15,7 +22,9 @@ export class CreateExtraSlotDto {
   @Matches(TIME_PATTERN, { message: 'endTime doit être au format HH:mm' })
   endTime: string;
 
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Choisissez au moins une prestation' })
   @Type(() => Number)
-  @IsInt()
-  serviceId: number;
+  @IsInt({ each: true })
+  serviceIds: number[];
 }

@@ -15,6 +15,14 @@ export interface Timeslot {
   endsAt: Date;
 }
 
+/** Plage d'ouverture d'une journée, telle qu'utilisée pour découper les créneaux. */
+interface OpenRange {
+  start: Date;
+  end: Date;
+  /** Vrai pour un créneau ponctuel : la plage est prise telle quelle, battement compris. */
+  isExtraSlot: boolean;
+}
+
 function parseTimeOfDay(time: string): { hours: number; minutes: number } {
   const [hours, minutes] = time.split(':').map(Number);
   return { hours, minutes };
@@ -59,6 +67,23 @@ export class TimeslotsService {
     const candidateSlots: Timeslot[] = [];
 
     for (const range of openRanges) {
+      // Créneau ponctuel : la plage a été ouverte à la main pour ces prestations
+      // précises. Toute heure de début comprise dans la plage est proposée, même
+      // si la séance se termine après la fin de la plage, et sans retrancher le
+      // battement — c'est elle qui décide en posant le créneau.
+      if (range.isExtraSlot) {
+        let cursor = range.start;
+        while (isBefore(cursor, range.end)) {
+          candidateSlots.push({
+            startsAt: cursor,
+            endsAt: addMinutes(cursor, service.durationMinutes),
+          });
+          cursor = addMinutes(cursor, service.durationMinutes);
+        }
+        continue;
+      }
+
+      // Horaires récurrents : la séance et son battement doivent tenir dans la plage.
       let cursor = range.start;
       while (true) {
         const slotEnd = addMinutes(cursor, slotLengthMinutes);
@@ -72,7 +97,7 @@ export class TimeslotsService {
       }
     }
 
-    return candidateSlots.filter((slot) => {
+    const bookableSlots = candidateSlots.filter((slot) => {
       if (isBefore(slot.startsAt, now)) {
         return false;
       }
@@ -80,6 +105,16 @@ export class TimeslotsService {
         (booking) => slot.startsAt < booking.endsAt && booking.startsAt < slot.endsAt,
       );
     });
+
+    // Plages récurrentes et créneaux ponctuels peuvent se chevaucher : on
+    // dédoublonne par heure de début et on renvoie l'ensemble trié.
+    const slotsByStart = new Map<number, Timeslot>();
+    for (const slot of bookableSlots) {
+      slotsByStart.set(slot.startsAt.getTime(), slot);
+    }
+    return [...slotsByStart.values()].sort(
+      (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
+    );
   }
 
   /**
@@ -115,13 +150,16 @@ export class TimeslotsService {
   private async getOpenRangesForDate(
     dateStr: string,
     serviceId: number,
-  ): Promise<Array<{ start: Date; end: Date }>> {
+  ): Promise<OpenRange[]> {
+    // Un créneau ponctuel s'ajoute toujours, y compris un jour de congé ou un
+    // jour normalement fermé : l'avoir posé vaut accord de travailler ce jour-là.
     const extraSlots = await this.availabilityService.findAllExtraSlots();
-    const extraRanges = extraSlots
-      .filter((s) => s.date === dateStr && s.serviceId === serviceId)
+    const extraRanges: OpenRange[] = extraSlots
+      .filter((s) => s.date === dateStr && s.serviceIds.includes(serviceId))
       .map((s) => ({
         start: this.toBusinessDateTime(dateStr, s.startTime),
         end: this.toBusinessDateTime(dateStr, s.endTime),
+        isExtraSlot: true,
       }));
 
     const exceptions = await this.availabilityService.findAllExceptions();
@@ -135,6 +173,7 @@ export class TimeslotsService {
         {
           start: this.toBusinessDateTime(dateStr, exception.startTime),
           end: this.toBusinessDateTime(dateStr, exception.endTime),
+          isExtraSlot: false,
         },
         ...extraRanges,
       ];
@@ -142,11 +181,12 @@ export class TimeslotsService {
 
     const weekday = this.getWeekday(dateStr);
     const availabilities = await this.availabilityService.findAllAvailabilities();
-    const recurringRanges = availabilities
+    const recurringRanges: OpenRange[] = availabilities
       .filter((a) => a.weekday === weekday)
       .map((a) => ({
         start: this.toBusinessDateTime(dateStr, a.startTime),
         end: this.toBusinessDateTime(dateStr, a.endTime),
+        isExtraSlot: false,
       }));
     return [...recurringRanges, ...extraRanges];
   }

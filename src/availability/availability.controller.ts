@@ -17,6 +17,8 @@ import { CreateAvailabilityDto } from './dto/create-availability.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateExceptionRangeDto } from './dto/create-exception-range.dto';
 import { CreateExtraSlotDto } from './dto/create-extra-slot.dto';
+import { CreateExtraSlotsDto } from './dto/create-extra-slots.dto';
+import { DeleteExtraSlotsDto } from './dto/delete-extra-slots.dto';
 import { ImportFrenchHolidaysDto } from './dto/import-french-holidays.dto';
 
 @Controller('availability')
@@ -86,6 +88,18 @@ export class AvailabilityController {
   @Post('extra-slots')
   createExtraSlot(@Body() dto: CreateExtraSlotDto) {
     return this.availabilityService.createExtraSlot(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('extra-slots/bulk')
+  createExtraSlots(@Body() dto: CreateExtraSlotsDto) {
+    return this.availabilityService.createExtraSlots(dto.slots);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('extra-slots')
+  removeExtraSlotsByDate(@Query() query: DeleteExtraSlotsDto) {
+    return this.availabilityService.removeExtraSlotsByDate(query.date);
   }
 
   @UseGuards(JwtAuthGuard)
