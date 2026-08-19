@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ServicesService } from '../services/services.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
-import { TimeslotsService } from './timeslots.service';
+import { TimeslotsService, toBusinessDateKey } from './timeslots.service';
 import { ClientsService } from '../clients/clients.service';
 
 type BookingWithService = Booking & { service: Service };
@@ -66,11 +66,12 @@ export class BookingsService {
 
     try {
       const booking = await this.prisma.$transaction(async (tx) => {
-        const availableSlots = await this.timeslotsService.getAvailableTimeslots(
-          dto.serviceId,
-          dto.startsAt.slice(0, 10),
-          tx,
-        );
+        const availableSlots =
+          await this.timeslotsService.getAvailableTimeslots(
+            dto.serviceId,
+            toBusinessDateKey(startsAt),
+            tx,
+          );
         const slotIsAvailable = availableSlots.some(
           (slot) => slot.startsAt.getTime() === startsAt.getTime(),
         );
@@ -179,10 +180,15 @@ export class BookingsService {
     });
   }
 
-  async updateAdmin(id: number, dto: UpdateBookingDto): Promise<BookingWithService> {
+  async updateAdmin(
+    id: number,
+    dto: UpdateBookingDto,
+  ): Promise<BookingWithService> {
     const existing = await this.findOneAdmin(id);
     if (existing.status === 'CANCELLED') {
-      throw new BadRequestException('Impossible de modifier une réservation annulée');
+      throw new BadRequestException(
+        'Impossible de modifier une réservation annulée',
+      );
     }
 
     const serviceId = dto.serviceId ?? existing.serviceId;
@@ -193,16 +199,17 @@ export class BookingsService {
 
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : existing.startsAt;
     const endsAt = addMinutes(startsAt, service.durationMinutes);
-    const dateStr = startsAt.toISOString().slice(0, 10);
+    const dateStr = toBusinessDateKey(startsAt);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const availableSlots = await this.timeslotsService.getAvailableTimeslots(
-          serviceId,
-          dateStr,
-          tx,
-          id,
-        );
+        const availableSlots =
+          await this.timeslotsService.getAvailableTimeslots(
+            serviceId,
+            dateStr,
+            tx,
+            id,
+          );
         const slotIsAvailable = availableSlots.some(
           (slot) => slot.startsAt.getTime() === startsAt.getTime(),
         );

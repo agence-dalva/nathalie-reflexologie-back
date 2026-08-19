@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsEmail,
@@ -46,7 +46,12 @@ export class CreateBookingDto {
   @IsPhoneNumber('FR')
   beneficiaryPhone?: string;
 
-  @IsOptional()
+  // Le motif du rendez-vous est demandé aussi bien en ligne qu'au back-office :
+  // c'est ce qu'elle lit en premier en préparant sa séance.
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString()
-  notes?: string;
+  @MinLength(1, { message: 'Le motif est requis' })
+  notes: string;
 }

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { addDays, addMinutes, isBefore } from 'date-fns';
-import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz';
 import { AvailabilityService } from '../availability/availability.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServicesService } from '../services/services.service';
@@ -15,12 +15,38 @@ export interface Timeslot {
   endsAt: Date;
 }
 
+/** Le jour calendaire correspondant à un instant, vu depuis le cabinet. */
+export function toBusinessDateKey(date: Date): string {
+  return formatInTimeZone(date, BUSINESS_TIMEZONE, 'yyyy-MM-dd');
+}
+
 /** Plage d'ouverture d'une journée, telle qu'utilisée pour découper les créneaux. */
 interface OpenRange {
   start: Date;
   end: Date;
   /** Vrai pour un créneau ponctuel : la plage est prise telle quelle, battement compris. */
   isExtraSlot: boolean;
+}
+
+/** Créneau candidat, avant confrontation aux rendez-vous déjà posés. */
+interface CandidateSlot extends Timeslot {
+  isExtraSlot: boolean;
+}
+
+/** Rendez-vous confirmé occupant la journée, avec le battement de sa prestation. */
+interface BusyBooking {
+  startsAt: Date;
+  endsAt: Date;
+  bufferMinutes: number;
+}
+
+/** Les trois tables de disponibilité, relues une seule fois par calcul. */
+interface AvailabilityData {
+  availabilities: Awaited<
+    ReturnType<AvailabilityService['findAllAvailabilities']>
+  >;
+  exceptions: Awaited<ReturnType<AvailabilityService['findAllExceptions']>>;
+  extraSlots: Awaited<ReturnType<AvailabilityService['findAllExtraSlots']>>;
 }
 
 function parseTimeOfDay(time: string): { hours: number; minutes: number } {
@@ -43,28 +69,66 @@ export class TimeslotsService {
     excludeBookingId?: number,
   ): Promise<Timeslot[]> {
     const service = await this.servicesService.findOne(serviceId);
-    const slotLengthMinutes = service.durationMinutes + service.bufferMinutes;
+    const data = await this.loadAvailabilityData();
+    const bookings = await this.findBusyBookings(
+      client,
+      dateStr,
+      dateStr,
+      excludeBookingId,
+    );
+    return this.buildSlotsForDate(service, dateStr, data, bookings, new Date());
+  }
 
-    const openRanges = await this.getOpenRangesForDate(dateStr, serviceId);
+  /**
+   * Renvoie les dates (YYYY-MM-DD) ayant au moins un créneau disponible,
+   * sur `dayCount` jours à partir de `startDateStr` inclus.
+   */
+  async getAvailableDays(
+    serviceId: number,
+    startDateStr: string,
+    dayCount: number,
+  ): Promise<string[]> {
+    if (dayCount <= 0) {
+      return [];
+    }
+
+    const dateKeys = Array.from({ length: dayCount }, (_, i) =>
+      this.shiftDateKey(startDateStr, i),
+    );
+
+    // Le calendrier du front demande souvent deux mois d'un coup : les tables de
+    // disponibilité et les rendez-vous de la fenêtre sont lus une seule fois,
+    // puis chaque journée est calculée en mémoire.
+    const service = await this.servicesService.findOne(serviceId);
+    const data = await this.loadAvailabilityData();
+    const bookings = await this.findBusyBookings(
+      this.prisma,
+      dateKeys[0],
+      dateKeys[dateKeys.length - 1],
+    );
+
+    const now = new Date();
+    return dateKeys.filter(
+      (dateStr) =>
+        this.buildSlotsForDate(service, dateStr, data, bookings, now).length >
+        0,
+    );
+  }
+
+  private buildSlotsForDate(
+    service: { id: number; durationMinutes: number; bufferMinutes: number },
+    dateStr: string,
+    data: AvailabilityData,
+    bookings: BusyBooking[],
+    now: Date,
+  ): Timeslot[] {
+    const openRanges = this.getOpenRangesForDate(dateStr, service.id, data);
     if (openRanges.length === 0) {
       return [];
     }
 
-    const dayStart = fromZonedTime(`${dateStr}T00:00:00`, BUSINESS_TIMEZONE);
-    const dayEnd = fromZonedTime(`${dateStr}T23:59:59`, BUSINESS_TIMEZONE);
-
-    const existingBookings = await client.booking.findMany({
-      where: {
-        status: 'CONFIRMED',
-        startsAt: { lt: dayEnd },
-        endsAt: { gt: dayStart },
-        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
-      },
-      select: { startsAt: true, endsAt: true },
-    });
-
-    const now = new Date();
-    const candidateSlots: Timeslot[] = [];
+    const slotLengthMinutes = service.durationMinutes + service.bufferMinutes;
+    const candidateSlots: CandidateSlot[] = [];
 
     for (const range of openRanges) {
       // Créneau ponctuel : la plage a été ouverte à la main pour ces prestations
@@ -77,6 +141,7 @@ export class TimeslotsService {
           candidateSlots.push({
             startsAt: cursor,
             endsAt: addMinutes(cursor, service.durationMinutes),
+            isExtraSlot: true,
           });
           cursor = addMinutes(cursor, service.durationMinutes);
         }
@@ -91,8 +156,11 @@ export class TimeslotsService {
           break;
         }
 
-        const appointmentEnd = addMinutes(cursor, service.durationMinutes);
-        candidateSlots.push({ startsAt: cursor, endsAt: appointmentEnd });
+        candidateSlots.push({
+          startsAt: cursor,
+          endsAt: addMinutes(cursor, service.durationMinutes),
+          isExtraSlot: false,
+        });
         cursor = slotEnd;
       }
     }
@@ -101,16 +169,17 @@ export class TimeslotsService {
       if (isBefore(slot.startsAt, now)) {
         return false;
       }
-      return !existingBookings.some(
-        (booking) => slot.startsAt < booking.endsAt && booking.startsAt < slot.endsAt,
-      );
+      return !this.conflictsWithBooking(slot, service.bufferMinutes, bookings);
     });
 
-    // Plages récurrentes et créneaux ponctuels peuvent se chevaucher : on
-    // dédoublonne par heure de début et on renvoie l'ensemble trié.
+    // Deux créneaux ponctuels peuvent se chevaucher : on dédoublonne par heure
+    // de début et on renvoie l'ensemble trié.
     const slotsByStart = new Map<number, Timeslot>();
     for (const slot of bookableSlots) {
-      slotsByStart.set(slot.startsAt.getTime(), slot);
+      slotsByStart.set(slot.startsAt.getTime(), {
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+      });
     }
     return [...slotsByStart.values()].sort(
       (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
@@ -118,26 +187,119 @@ export class TimeslotsService {
   }
 
   /**
-   * Renvoie les dates (YYYY-MM-DD) ayant au moins un créneau disponible,
-   * sur `dayCount` jours à partir de `startDateStr` inclus.
+   * Sur les horaires récurrents, le battement doit tenir entre deux séances : on
+   * confronte les plages d'occupation réelles, séance + battement de part et
+   * d'autre. Sur un créneau ponctuel elle gère son battement elle-même, seul le
+   * chevauchement des séances compte.
    */
-  async getAvailableDays(
-    serviceId: number,
-    startDateStr: string,
-    dayCount: number,
-  ): Promise<string[]> {
-    const [year, month, day] = startDateStr.split('-').map(Number);
-    const startDate = new Date(Date.UTC(year, month - 1, day));
+  private conflictsWithBooking(
+    slot: CandidateSlot,
+    serviceBufferMinutes: number,
+    bookings: BusyBooking[],
+  ): boolean {
+    const slotEnd = slot.isExtraSlot
+      ? slot.endsAt
+      : addMinutes(slot.endsAt, serviceBufferMinutes);
 
-    const availableDays: string[] = [];
-    for (let i = 0; i < dayCount; i++) {
-      const dateStr = this.toDateKey(addDays(startDate, i));
-      const slots = await this.getAvailableTimeslots(serviceId, dateStr);
-      if (slots.length > 0) {
-        availableDays.push(dateStr);
-      }
+    return bookings.some((booking) => {
+      const bookingEnd = slot.isExtraSlot
+        ? booking.endsAt
+        : addMinutes(booking.endsAt, booking.bufferMinutes);
+      return slot.startsAt < bookingEnd && booking.startsAt < slotEnd;
+    });
+  }
+
+  private getOpenRangesForDate(
+    dateStr: string,
+    serviceId: number,
+    data: AvailabilityData,
+  ): OpenRange[] {
+    // Poser un créneau ponctuel vaut prise en main de la journée : dès qu'il y en
+    // a un, il remplace les horaires récurrents comme l'exception éventuelle —
+    // y compris un jour de congé ou normalement fermé. Seules les prestations
+    // cochées sur ces créneaux restent réservables ce jour-là.
+    const extraSlotsOfDay = data.extraSlots.filter(
+      (slot) => slot.date === dateStr,
+    );
+    if (extraSlotsOfDay.length > 0) {
+      return extraSlotsOfDay
+        .filter((slot) => slot.serviceIds.includes(serviceId))
+        .map((slot) => ({
+          start: this.toBusinessDateTime(dateStr, slot.startTime),
+          end: this.toBusinessDateTime(dateStr, slot.endTime),
+          isExtraSlot: true,
+        }));
     }
-    return availableDays;
+
+    const exception = data.exceptions.find((e) => e.date === dateStr);
+    if (exception) {
+      if (exception.isClosed || !exception.startTime || !exception.endTime) {
+        return [];
+      }
+      return [
+        {
+          start: this.toBusinessDateTime(dateStr, exception.startTime),
+          end: this.toBusinessDateTime(dateStr, exception.endTime),
+          isExtraSlot: false,
+        },
+      ];
+    }
+
+    const weekday = this.getWeekday(dateStr);
+    return data.availabilities
+      .filter((a) => a.weekday === weekday)
+      .map((a) => ({
+        start: this.toBusinessDateTime(dateStr, a.startTime),
+        end: this.toBusinessDateTime(dateStr, a.endTime),
+        isExtraSlot: false,
+      }));
+  }
+
+  private async loadAvailabilityData(): Promise<AvailabilityData> {
+    const [availabilities, exceptions, extraSlots] = await Promise.all([
+      this.availabilityService.findAllAvailabilities(),
+      this.availabilityService.findAllExceptions(),
+      this.availabilityService.findAllExtraSlots(),
+    ]);
+    return { availabilities, exceptions, extraSlots };
+  }
+
+  private async findBusyBookings(
+    client: PrismaClientOrTx,
+    fromDateStr: string,
+    toDateStr: string,
+    excludeBookingId?: number,
+  ): Promise<BusyBooking[]> {
+    // Fenêtre élargie d'un jour de chaque côté : le battement d'un rendez-vous
+    // de la veille peut mordre sur le premier créneau du jour demandé.
+    const rangeStart = this.toBusinessDateTime(
+      this.shiftDateKey(fromDateStr, -1),
+      '00:00',
+    );
+    const rangeEnd = this.toBusinessDateTime(
+      this.shiftDateKey(toDateStr, 2),
+      '00:00',
+    );
+
+    const bookings = await client.booking.findMany({
+      where: {
+        status: 'CONFIRMED',
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+      select: {
+        startsAt: true,
+        endsAt: true,
+        service: { select: { bufferMinutes: true } },
+      },
+    });
+
+    return bookings.map((booking) => ({
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      bufferMinutes: booking.service.bufferMinutes,
+    }));
   }
 
   private toDateKey(date: Date): string {
@@ -147,48 +309,11 @@ export class TimeslotsService {
     return `${year}-${month}-${day}`;
   }
 
-  private async getOpenRangesForDate(
-    dateStr: string,
-    serviceId: number,
-  ): Promise<OpenRange[]> {
-    // Un créneau ponctuel s'ajoute toujours, y compris un jour de congé ou un
-    // jour normalement fermé : l'avoir posé vaut accord de travailler ce jour-là.
-    const extraSlots = await this.availabilityService.findAllExtraSlots();
-    const extraRanges: OpenRange[] = extraSlots
-      .filter((s) => s.date === dateStr && s.serviceIds.includes(serviceId))
-      .map((s) => ({
-        start: this.toBusinessDateTime(dateStr, s.startTime),
-        end: this.toBusinessDateTime(dateStr, s.endTime),
-        isExtraSlot: true,
-      }));
-
-    const exceptions = await this.availabilityService.findAllExceptions();
-    const exception = exceptions.find((e) => e.date === dateStr);
-
-    if (exception) {
-      if (exception.isClosed || !exception.startTime || !exception.endTime) {
-        return extraRanges;
-      }
-      return [
-        {
-          start: this.toBusinessDateTime(dateStr, exception.startTime),
-          end: this.toBusinessDateTime(dateStr, exception.endTime),
-          isExtraSlot: false,
-        },
-        ...extraRanges,
-      ];
-    }
-
-    const weekday = this.getWeekday(dateStr);
-    const availabilities = await this.availabilityService.findAllAvailabilities();
-    const recurringRanges: OpenRange[] = availabilities
-      .filter((a) => a.weekday === weekday)
-      .map((a) => ({
-        start: this.toBusinessDateTime(dateStr, a.startTime),
-        end: this.toBusinessDateTime(dateStr, a.endTime),
-        isExtraSlot: false,
-      }));
-    return [...recurringRanges, ...extraRanges];
+  private shiftDateKey(dateStr: string, days: number): string {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return this.toDateKey(
+      addDays(new Date(Date.UTC(year, month - 1, day)), days),
+    );
   }
 
   private toBusinessDateTime(dateStr: string, time: string): Date {
@@ -201,7 +326,10 @@ export class TimeslotsService {
 
   private getWeekday(dateStr: string): number {
     // JS getDay(): 0=dimanche...6=samedi. On veut 0=lundi...6=dimanche.
-    const zoned = toZonedTime(fromZonedTime(`${dateStr}T12:00:00`, BUSINESS_TIMEZONE), BUSINESS_TIMEZONE);
+    const zoned = toZonedTime(
+      fromZonedTime(`${dateStr}T12:00:00`, BUSINESS_TIMEZONE),
+      BUSINESS_TIMEZONE,
+    );
     const jsDay = zoned.getDay();
     return jsDay === 0 ? 6 : jsDay - 1;
   }
