@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -54,7 +51,9 @@ export class AuthService {
     });
 
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
-      throw new UnauthorizedException('Session invalide, merci de vous reconnecter');
+      throw new UnauthorizedException(
+        'Session invalide, merci de vous reconnecter',
+      );
     }
 
     await this.prisma.refreshToken.update({
@@ -73,7 +72,10 @@ export class AuthService {
     });
   }
 
-  private async issueTokens(adminUserId: number, email: string): Promise<AuthTokens> {
+  private async issueTokens(
+    adminUserId: number,
+    email: string,
+  ): Promise<AuthTokens> {
     const accessToken = this.jwtService.sign(
       { sub: adminUserId, email },
       {

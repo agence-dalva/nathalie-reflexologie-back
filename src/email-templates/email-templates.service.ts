@@ -33,7 +33,9 @@ export class EmailTemplatesService {
   }
 
   async findOne(type: EmailTemplateType) {
-    const template = await this.prisma.emailTemplate.findUnique({ where: { type } });
+    const template = await this.prisma.emailTemplate.findUnique({
+      where: { type },
+    });
     return template ?? { type, ...DEFAULT_EMAIL_TEMPLATES[type] };
   }
 
@@ -50,7 +52,9 @@ export class EmailTemplatesService {
 
   /** Résout le template effectif (personnalisé ou par défaut) pour un type donné. */
   async resolve(type: EmailTemplateType) {
-    const template = await this.prisma.emailTemplate.findUnique({ where: { type } });
+    const template = await this.prisma.emailTemplate.findUnique({
+      where: { type },
+    });
     return template ?? { type, ...DEFAULT_EMAIL_TEMPLATES[type] };
   }
 

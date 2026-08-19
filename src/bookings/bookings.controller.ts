@@ -47,7 +47,10 @@ export class BookingsController {
     @Body() dto: CreateBookingDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    const { booking, isNew } = await this.bookingsService.create(dto, idempotencyKey);
+    const { booking, isNew } = await this.bookingsService.create(
+      dto,
+      idempotencyKey,
+    );
     if (isNew) {
       await this.mailService.sendBookingConfirmation(booking);
     }

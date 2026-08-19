@@ -16,7 +16,7 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<
   CANCELLATION: {
     subject: 'Annulation de votre rendez-vous — {{prestation}}',
     title: 'Votre rendez-vous a été annulé',
-    body: "Bonjour {{prenom}} {{nom}},\n\nVotre rendez-vous pour \"{{prestation}}\" du {{date}} à {{heure}} a bien été annulé.\n\nN'hésitez pas à reprendre rendez-vous quand vous le souhaitez.",
+    body: 'Bonjour {{prenom}} {{nom}},\n\nVotre rendez-vous pour "{{prestation}}" du {{date}} à {{heure}} a bien été annulé.\n\nN\'hésitez pas à reprendre rendez-vous quand vous le souhaitez.',
   },
   MODIFICATION: {
     subject: 'Modification de votre rendez-vous — {{prestation}}',

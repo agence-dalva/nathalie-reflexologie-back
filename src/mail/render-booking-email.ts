@@ -10,7 +10,10 @@ function escapeHtml(value: string): string {
 function textToHtmlParagraphs(text: string): string {
   return text
     .split(/\n{2,}/)
-    .map((paragraph) => `<p style="margin: 0 0 16px;">${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .map(
+      (paragraph) =>
+        `<p style="margin: 0 0 16px;">${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`,
+    )
     .join('');
 }
 
@@ -27,7 +30,14 @@ export function renderBookingEmailHtml(options: {
   hasCalendarAttachment?: boolean;
   logoUrl?: string;
 }): string {
-  const { title, bodyText, cancelUrl, showCancelLink, hasCalendarAttachment, logoUrl } = options;
+  const {
+    title,
+    bodyText,
+    cancelUrl,
+    showCancelLink,
+    hasCalendarAttachment,
+    logoUrl,
+  } = options;
 
   return `
     <div style="background-color: #f5f7f4; padding: 32px 16px; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;">

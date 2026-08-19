@@ -54,7 +54,7 @@ export class EmailTemplatesController {
   }
 
   @Post(':type/preview')
-  async preview(@Param('type') type: string, @Body() dto: UpdateEmailTemplateDto) {
+  preview(@Param('type') type: string, @Body() dto: UpdateEmailTemplateDto) {
     const parsedType = parseType(type);
     const rendered = this.emailTemplatesService.render(dto, PREVIEW_VARS);
     const logoUrl = `${this.configService.get<string>('FRONTEND_URL') ?? ''}/images/nathalie-logo.png`;

@@ -16,7 +16,11 @@ function foldLine(line: string): string {
 }
 
 function escapeIcsText(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n');
 }
 
 /** Génère un fichier .ics minimal pour un rendez-vous, compatible Google/Apple/Outlook. */

@@ -30,7 +30,10 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const tokens = await this.authService.login(dto.email, dto.password);
     this.setAuthCookies(res, tokens);
     return { success: true };
@@ -38,10 +41,16 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as
+      string | undefined;
     if (!refreshToken) {
-      throw new UnauthorizedException('Session invalide, merci de vous reconnecter');
+      throw new UnauthorizedException(
+        'Session invalide, merci de vous reconnecter',
+      );
     }
     const tokens = await this.authService.refresh(refreshToken);
     this.setAuthCookies(res, tokens);
@@ -51,7 +60,8 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+    const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as
+      string | undefined;
     if (refreshToken) {
       await this.authService.logout(refreshToken);
     }

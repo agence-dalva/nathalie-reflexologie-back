@@ -43,26 +43,47 @@ export class MailService {
   }
 
   async sendBookingConfirmation(booking: BookingWithService) {
-    const { subject, html, attachments } = await this.buildBookingEmail(booking, 'CONFIRMATION');
+    const { subject, html, attachments } = await this.buildBookingEmail(
+      booking,
+      'CONFIRMATION',
+    );
     await this.send(booking.customerEmail, subject, html, attachments);
     if (this.adminEmail) {
-      await this.send(this.adminEmail, `Nouvelle réservation — ${booking.service.name}`, html);
+      await this.send(
+        this.adminEmail,
+        `Nouvelle réservation — ${booking.service.name}`,
+        html,
+      );
     }
   }
 
   async sendBookingCancellation(booking: BookingWithService) {
-    const { subject, html } = await this.buildBookingEmail(booking, 'CANCELLATION');
+    const { subject, html } = await this.buildBookingEmail(
+      booking,
+      'CANCELLATION',
+    );
     await this.send(booking.customerEmail, subject, html);
     if (this.adminEmail) {
-      await this.send(this.adminEmail, `Réservation annulée — ${booking.service.name}`, html);
+      await this.send(
+        this.adminEmail,
+        `Réservation annulée — ${booking.service.name}`,
+        html,
+      );
     }
   }
 
   async sendBookingModification(booking: BookingWithService) {
-    const { subject, html, attachments } = await this.buildBookingEmail(booking, 'MODIFICATION');
+    const { subject, html, attachments } = await this.buildBookingEmail(
+      booking,
+      'MODIFICATION',
+    );
     await this.send(booking.customerEmail, subject, html, attachments);
     if (this.adminEmail) {
-      await this.send(this.adminEmail, `Réservation modifiée — ${booking.service.name}`, html);
+      await this.send(
+        this.adminEmail,
+        `Réservation modifiée — ${booking.service.name}`,
+        html,
+      );
     }
   }
 
@@ -86,7 +107,9 @@ export class MailService {
     message: string;
   }) {
     if (!this.adminEmail) {
-      this.logger.warn('ADMIN_SEED_EMAIL absent — message de contact non transmis');
+      this.logger.warn(
+        'ADMIN_SEED_EMAIL absent — message de contact non transmis',
+      );
       return;
     }
 
@@ -120,7 +143,7 @@ export class MailService {
       prestation: booking.service.name,
       date: dateLabel,
       heure: timeLabel,
-      prix: `${booking.service.price} €`,
+      prix: `${booking.service.price.toString()} €`,
     });
 
     const beneficiaryNote = booking.beneficiaryFirstname
@@ -130,7 +153,8 @@ export class MailService {
       : '';
 
     const cancelUrl = `${this.configService.get<string>('FRONTEND_URL') ?? ''}/annulation/${booking.cancelToken}`;
-    const isConfirmationOrModification = type === 'CONFIRMATION' || type === 'MODIFICATION';
+    const isConfirmationOrModification =
+      type === 'CONFIRMATION' || type === 'MODIFICATION';
 
     const ics = isConfirmationOrModification
       ? generateBookingIcs({
@@ -156,13 +180,18 @@ export class MailService {
       subject: rendered.subject,
       html,
       attachments: ics
-        ? [{ filename: 'rendez-vous.ics', content: Buffer.from(ics).toString('base64') }]
+        ? [
+            {
+              filename: 'rendez-vous.ics',
+              content: Buffer.from(ics).toString('base64'),
+            },
+          ]
         : undefined,
     };
   }
 
   private formatDate(date: Date): string {
-    return formatInTimeZone(date, BUSINESS_TIMEZONE, "EEEE d MMMM yyyy");
+    return formatInTimeZone(date, BUSINESS_TIMEZONE, 'EEEE d MMMM yyyy');
   }
 
   private formatTime(date: Date): string {
@@ -183,9 +212,17 @@ export class MailService {
     }
 
     try {
-      await this.resend.emails.send({ from: this.from, to, subject, html, attachments });
+      await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+        attachments,
+      });
     } catch (error) {
-      this.logger.error(`Échec d'envoi d'email à ${to}: ${(error as Error).message}`);
+      this.logger.error(
+        `Échec d'envoi d'email à ${to}: ${(error as Error).message}`,
+      );
     }
   }
 }
