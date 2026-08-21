@@ -402,7 +402,7 @@ describe('TimeslotsService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────
-  // D. Créneaux ponctuels : ils pilotent la journée
+  // D. Créneaux ponctuels : ils pilotent la journée, sauf les jours de congé
   // ─────────────────────────────────────────────────────────────
   describe('créneaux ponctuels', () => {
     it('15. remplace les horaires habituels de la journée', async () => {
@@ -433,14 +433,23 @@ describe('TimeslotsService', () => {
       expect(startTimes(slots)).toEqual(['14:00']);
     });
 
-    it('18. prime sur un jour de congé', async () => {
+    it('18. cède devant un jour de congé, qui reste fermé', async () => {
       openWeekday(MONDAY_WEEKDAY, '09:00', '18:00');
       closeDate(MONDAY);
       addExtraSlot(MONDAY, '11:00', '12:00');
 
       const slots = await service.getAvailableTimeslots(PLANTAIRE, MONDAY);
 
-      expect(startTimes(slots)).toEqual(['11:00']);
+      expect(slots).toEqual([]);
+    });
+
+    it('18 bis. cède aussi devant un jour férié importé', async () => {
+      addExtraSlot(WEDNESDAY, '14:00', '15:00');
+      closeDate(WEDNESDAY, 'HOLIDAY');
+
+      const slots = await service.getAvailableTimeslots(PLANTAIRE, WEDNESDAY);
+
+      expect(slots).toEqual([]);
     });
 
     it('19. prime sur des horaires modifiés', async () => {
@@ -540,6 +549,16 @@ describe('TimeslotsService', () => {
       const days = await service.getAvailableDays(PLANTAIRE, MONDAY, 7);
 
       expect(days).toEqual([]);
+    });
+
+    it("27 bis. retire un jour de congé même s'il porte un créneau ponctuel", async () => {
+      openWeekday(MONDAY_WEEKDAY, '09:00', '18:00');
+      addExtraSlot(WEDNESDAY, '14:00', '15:00');
+      closeDate(WEDNESDAY);
+
+      const days = await service.getAvailableDays(PLANTAIRE, MONDAY, 7);
+
+      expect(days).toEqual([MONDAY]);
     });
 
     it('28. retire un jour dont les créneaux ponctuels visent une autre prestation', async () => {

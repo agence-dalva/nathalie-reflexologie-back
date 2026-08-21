@@ -214,10 +214,18 @@ export class TimeslotsService {
     serviceId: number,
     data: AvailabilityData,
   ): OpenRange[] {
-    // Poser un créneau ponctuel vaut prise en main de la journée : dès qu'il y en
-    // a un, il remplace les horaires récurrents comme l'exception éventuelle —
-    // y compris un jour de congé ou normalement fermé. Seules les prestations
-    // cochées sur ces créneaux restent réservables ce jour-là.
+    const exception = data.exceptions.find((e) => e.date === dateStr);
+
+    // Un jour de congé prime sur tout : elle est en congé, et un créneau
+    // ponctuel resté posé sur cette date ne rouvre pas la journée.
+    if (exception?.isClosed) {
+      return [];
+    }
+
+    // Hors congé, poser un créneau ponctuel vaut prise en main de la journée :
+    // dès qu'il y en a un, il remplace les horaires récurrents comme les
+    // horaires modifiés — y compris un jour normalement fermé. Seules les
+    // prestations cochées sur ces créneaux restent réservables ce jour-là.
     const extraSlotsOfDay = data.extraSlots.filter(
       (slot) => slot.date === dateStr,
     );
@@ -231,9 +239,8 @@ export class TimeslotsService {
         }));
     }
 
-    const exception = data.exceptions.find((e) => e.date === dateStr);
     if (exception) {
-      if (exception.isClosed || !exception.startTime || !exception.endTime) {
+      if (!exception.startTime || !exception.endTime) {
         return [];
       }
       return [
