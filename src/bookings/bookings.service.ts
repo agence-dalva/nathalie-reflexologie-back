@@ -54,6 +54,13 @@ export class BookingsService {
       throw new BadRequestException('Cette prestation n’est plus disponible');
     }
 
+    const address = dto.address?.trim();
+    if (service.requiresAddress && !address) {
+      throw new BadRequestException(
+        'L’adresse du rendez-vous est requise pour cette prestation',
+      );
+    }
+
     const startsAt = new Date(dto.startsAt);
     const endsAt = addMinutes(startsAt, service.durationMinutes);
 
@@ -92,6 +99,9 @@ export class BookingsService {
             beneficiaryFirstname: dto.beneficiaryFirstname,
             beneficiaryLastname: dto.beneficiaryLastname,
             beneficiaryPhone: dto.beneficiaryPhone,
+            // Une séance au cabinet n'a pas d'adresse propre, même si le
+            // formulaire en a envoyé une.
+            address: service.requiresAddress ? address : null,
             notes: dto.notes,
             startsAt,
             endsAt,

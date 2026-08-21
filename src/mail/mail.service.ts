@@ -152,6 +152,11 @@ export class MailService {
         }`
       : '';
 
+    // Séance à domicile : c'est l'adresse du client qui fait foi, pas le cabinet.
+    const addressNote = booking.address
+      ? `\n\nAdresse du rendez-vous : ${booking.address}`
+      : '';
+
     const cancelUrl = `${this.configService.get<string>('FRONTEND_URL') ?? ''}/annulation/${booking.cancelToken}`;
     const isConfirmationOrModification =
       type === 'CONFIRMATION' || type === 'MODIFICATION';
@@ -161,7 +166,7 @@ export class MailService {
           uid: `booking-${booking.id}-${booking.updatedAt.getTime()}`,
           title: `${booking.service.name} — Nathalie OHL Réflexologue`,
           description: `Rendez-vous ${booking.service.name.toLowerCase()} chez Nathalie OHL.`,
-          location: CABINET_ADDRESS,
+          location: booking.address ?? CABINET_ADDRESS,
           startsAt: booking.startsAt,
           endsAt: booking.endsAt,
         })
@@ -169,7 +174,7 @@ export class MailService {
 
     const html = renderBookingEmailHtml({
       title: rendered.title,
-      bodyText: rendered.body + beneficiaryNote,
+      bodyText: rendered.body + beneficiaryNote + addressNote,
       cancelUrl,
       showCancelLink: type === 'CONFIRMATION',
       hasCalendarAttachment: Boolean(ics),

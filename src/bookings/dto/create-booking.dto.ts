@@ -46,6 +46,15 @@ export class CreateBookingDto {
   @IsPhoneNumber('FR')
   beneficiaryPhone?: string;
 
+  // Adresse de la séance : demandée — et exigée — pour les prestations à
+  // domicile uniquement, ignorée pour les séances au cabinet.
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  address?: string;
+
   // Le motif du rendez-vous est demandé aussi bien en ligne qu'au back-office :
   // c'est ce qu'elle lit en premier en préparant sa séance.
   @Transform(({ value }: { value: unknown }) =>

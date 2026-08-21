@@ -37,4 +37,9 @@ export class CreateServiceDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  // Prestation à domicile : l'adresse du client est demandée à la réservation.
+  @IsOptional()
+  @IsBoolean()
+  requiresAddress?: boolean;
 }

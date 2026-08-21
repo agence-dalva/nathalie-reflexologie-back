@@ -86,6 +86,7 @@ const services = [
     durationMinutes: 60,
     bufferMinutes: 30,
     price: 65,
+    requiresAddress: true,
   },
   {
     name: 'Massage assis',

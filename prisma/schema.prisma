@@ -62,6 +62,8 @@ model Service {
   price           Decimal  @default(0) @db.Decimal(10, 2)
   active          Boolean  @default(true)
   order           Int      @default(0)
+  // Prestation à domicile : l'adresse du client est demandée à la réservation.
+  requiresAddress Boolean  @default(false) @map("requires_address")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -125,6 +127,8 @@ model Booking {
   beneficiaryFirstname String?       @map("beneficiary_firstname")
   beneficiaryLastname  String?       @map("beneficiary_lastname")
   beneficiaryPhone     String?       @map("beneficiary_phone")
+  // Adresse de la séance, renseignée pour les prestations à domicile.
+  address              String?
   notes                String?
   startsAt             DateTime      @map("starts_at") @db.Timestamptz()
   endsAt               DateTime      @map("ends_at") @db.Timestamptz()
