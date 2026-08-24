@@ -85,7 +85,9 @@ export class BookingsController {
   @Post('admin')
   async createAdmin(@Body() dto: CreateBookingDto) {
     const { booking } = await this.bookingsService.create(dto);
-    await this.mailService.sendBookingConfirmation(booking);
+    await this.mailService.sendBookingConfirmation(booking, {
+      notifyAdmin: false,
+    });
     return booking;
   }
 
@@ -93,7 +95,9 @@ export class BookingsController {
   @Patch('admin/:id/cancel')
   async cancelAdmin(@Param('id', ParseIntPipe) id: number) {
     const booking = await this.bookingsService.cancelAdmin(id);
-    await this.mailService.sendBookingCancellation(booking);
+    await this.mailService.sendBookingCancellation(booking, {
+      notifyAdmin: false,
+    });
     return booking;
   }
 

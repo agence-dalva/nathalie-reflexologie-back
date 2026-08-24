@@ -8,7 +8,11 @@ import { fr } from 'date-fns/locale';
 import { BUSINESS_TIMEZONE } from '../bookings/timeslots.service';
 import type { Booking, Service } from '../../generated/prisma/client';
 import { EmailTemplatesService } from '../email-templates/email-templates.service';
-import { renderBookingEmailHtml } from './render-booking-email';
+import {
+  renderAdminBookingEmailHtml,
+  renderBookingEmailHtml,
+  type AdminEmailRow,
+} from './render-booking-email';
 import { generateBookingIcs } from './ics';
 
 type BookingWithService = Booking & { service: Service };
@@ -34,6 +38,26 @@ interface EmailAttachment {
   content: string;
   contentId?: string;
 }
+
+type BookingEmailType = 'CONFIRMATION' | 'CANCELLATION' | 'MODIFICATION';
+
+/** Les seuls événements qui méritent un email à Nathalie. */
+type AdminNotificationType = 'CONFIRMATION' | 'CANCELLATION';
+
+/** Objet et titre de la fiche envoyée à Nathalie, selon l'événement. */
+const ADMIN_EMAIL_LABELS: Record<
+  AdminNotificationType,
+  { subject: string; title: string }
+> = {
+  CONFIRMATION: {
+    subject: 'Nouvelle réservation',
+    title: 'Nouveau rendez-vous',
+  },
+  CANCELLATION: {
+    subject: 'Réservation annulée',
+    title: 'Rendez-vous annulé',
+  },
+};
 
 @Injectable()
 export class MailService {
@@ -77,49 +101,114 @@ export class MailService {
     }
   }
 
-  async sendBookingConfirmation(booking: BookingWithService) {
+  /**
+   * `notifyAdmin` : Nathalie n'est prévenue que des gestes venus du site. Ce
+   * qu'elle fait elle-même au back-office, elle le sait déjà — seul le client
+   * reçoit un message.
+   */
+  async sendBookingConfirmation(
+    booking: BookingWithService,
+    { notifyAdmin = true }: { notifyAdmin?: boolean } = {},
+  ) {
     const { subject, html, attachments } = await this.buildBookingEmail(
       booking,
       'CONFIRMATION',
     );
     await this.send(booking.customerEmail, subject, html, attachments);
-    if (this.adminEmail) {
-      await this.send(
-        this.adminEmail,
-        `Nouvelle réservation — ${booking.service.name}`,
-        html,
-      );
+    if (notifyAdmin) {
+      await this.sendAdminNotification(booking, 'CONFIRMATION');
     }
   }
 
-  async sendBookingCancellation(booking: BookingWithService) {
+  async sendBookingCancellation(
+    booking: BookingWithService,
+    { notifyAdmin = true }: { notifyAdmin?: boolean } = {},
+  ) {
     const { subject, html } = await this.buildBookingEmail(
       booking,
       'CANCELLATION',
     );
     await this.send(booking.customerEmail, subject, html);
-    if (this.adminEmail) {
-      await this.send(
-        this.adminEmail,
-        `Réservation annulée — ${booking.service.name}`,
-        html,
-      );
+    if (notifyAdmin) {
+      await this.sendAdminNotification(booking, 'CANCELLATION');
     }
   }
 
+  /** Une modification part toujours du back-office : seul le client est prévenu. */
   async sendBookingModification(booking: BookingWithService) {
     const { subject, html, attachments } = await this.buildBookingEmail(
       booking,
       'MODIFICATION',
     );
     await this.send(booking.customerEmail, subject, html, attachments);
-    if (this.adminEmail) {
-      await this.send(
-        this.adminEmail,
-        `Réservation modifiée — ${booking.service.name}`,
-        html,
-      );
+  }
+
+  /**
+   * La copie de Nathalie : la fiche du rendez-vous avec tout ce que le client a
+   * rempli. Elle ne reçoit pas le message adressé au client, qui ne lui apprend
+   * rien sur qui vient ni pourquoi.
+   */
+  private async sendAdminNotification(
+    booking: BookingWithService,
+    type: AdminNotificationType,
+  ) {
+    if (!this.adminEmail) {
+      return;
     }
+    const { subject, title } = ADMIN_EMAIL_LABELS[type];
+    const html = renderAdminBookingEmailHtml({
+      title,
+      rows: this.buildAdminRows(booking),
+      notes: booking.notes ?? undefined,
+      logoUrl: this.logoUrl,
+    });
+    await this.send(
+      this.adminEmail,
+      `${subject} — ${booking.service.name}`,
+      html,
+    );
+  }
+
+  private buildAdminRows(booking: BookingWithService): AdminEmailRow[] {
+    const rows: AdminEmailRow[] = [
+      { label: 'Prestation', value: booking.service.name },
+      { label: 'Date', value: this.formatDate(booking.startsAt) },
+      {
+        label: 'Heure',
+        value: `${this.formatTime(booking.startsAt)} — ${this.formatDuration(
+          booking.service.durationMinutes,
+        )}`,
+      },
+      { label: 'Tarif', value: `${booking.service.price.toString()} €` },
+      {
+        label: 'Client',
+        value: `${booking.customerFirstname} ${booking.customerLastname}`,
+        startsGroup: true,
+      },
+      { label: 'Email', value: booking.customerEmail },
+    ];
+
+    if (booking.customerPhone) {
+      rows.push({ label: 'Téléphone', value: booking.customerPhone });
+    }
+    // Prestation à domicile : l'adresse où elle doit se rendre.
+    if (booking.address) {
+      rows.push({ label: 'Adresse', value: booking.address });
+    }
+    // Le client réserve pour quelqu'un d'autre : c'est cette personne qu'elle voit.
+    if (booking.beneficiaryFirstname) {
+      rows.push({
+        label: 'Séance pour',
+        value:
+          `${booking.beneficiaryFirstname} ${booking.beneficiaryLastname ?? ''}`.trim(),
+        startsGroup: true,
+      });
+      if (booking.beneficiaryPhone) {
+        rows.push({ label: 'Téléphone', value: booking.beneficiaryPhone });
+      }
+    }
+
+    return rows;
   }
 
   async sendBookingReminder(booking: BookingWithService) {
@@ -166,7 +255,7 @@ export class MailService {
 
   private async buildBookingEmail(
     booking: BookingWithService,
-    type: 'CONFIRMATION' | 'CANCELLATION' | 'MODIFICATION',
+    type: BookingEmailType,
   ) {
     const template = await this.emailTemplatesService.resolve(type);
     const dateLabel = this.formatDate(booking.startsAt);
@@ -238,6 +327,15 @@ export class MailService {
 
   private formatTime(date: Date): string {
     return formatInTimeZone(date, BUSINESS_TIMEZONE, 'HH:mm');
+  }
+
+  private formatDuration(minutes: number): string {
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (hours === 0) {
+      return `${rest} min`;
+    }
+    return rest === 0 ? `${hours} h` : `${hours} h ${rest}`;
   }
 
   private async send(
