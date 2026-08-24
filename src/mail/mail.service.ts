@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
 import { formatInTimeZone } from 'date-fns-tz';
+import { fr } from 'date-fns/locale';
 import { BUSINESS_TIMEZONE } from '../bookings/timeslots.service';
 import type { Booking, Service } from '../../generated/prisma/client';
 import { EmailTemplatesService } from '../email-templates/email-templates.service';
@@ -21,12 +24,24 @@ function escapeHtml(value: string): string {
 
 const CABINET_ADDRESS = '12, lotissement les Bosquets, 68130 Altkirch';
 
+// Le logo voyage avec l'email plutôt que d'être chargé depuis le site : les
+// messageries bloquent les images distantes, et l'en-tête arrivait vide.
+const LOGO_CONTENT_ID = 'logo';
+const LOGO_FILENAME = 'nathalie-logo.png';
+
+interface EmailAttachment {
+  filename: string;
+  content: string;
+  contentId?: string;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly resend: Resend | null;
   private readonly from: string;
   private readonly adminEmail: string | undefined;
+  private readonly logoAttachment: EmailAttachment | null;
   private readonly logoUrl: string;
 
   constructor(
@@ -37,9 +52,29 @@ export class MailService {
     this.resend = apiKey ? new Resend(apiKey) : null;
     this.from =
       this.configService.get<string>('MAIL_FROM') ??
-      'Nathalie Réflexologie <onboarding@resend.dev>';
+      'Nathalie OHL Réflexologue <nathalie.ohl@reflexologie-altkirch.fr>';
     this.adminEmail = this.configService.get<string>('ADMIN_SEED_EMAIL');
-    this.logoUrl = `${this.configService.get<string>('FRONTEND_URL') ?? ''}/images/nathalie-logo.png`;
+    this.logoAttachment = this.loadLogoAttachment();
+    this.logoUrl = this.logoAttachment
+      ? `cid:${LOGO_CONTENT_ID}`
+      : `${this.configService.get<string>('FRONTEND_URL') ?? ''}/images/nathalie-logo.png`;
+  }
+
+  /** Le logo, lu une fois au démarrage pour être joint à chaque email. */
+  private loadLogoAttachment(): EmailAttachment | null {
+    try {
+      const content = readFileSync(join(__dirname, 'assets', LOGO_FILENAME));
+      return {
+        filename: LOGO_FILENAME,
+        content: content.toString('base64'),
+        contentId: LOGO_CONTENT_ID,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Logo ${LOGO_FILENAME} illisible, les emails retombent sur l'image du site : ${(error as Error).message}`,
+      );
+      return null;
+    }
   }
 
   async sendBookingConfirmation(booking: BookingWithService) {
@@ -196,7 +231,9 @@ export class MailService {
   }
 
   private formatDate(date: Date): string {
-    return formatInTimeZone(date, BUSINESS_TIMEZONE, 'EEEE d MMMM yyyy');
+    return formatInTimeZone(date, BUSINESS_TIMEZONE, 'EEEE d MMMM yyyy', {
+      locale: fr,
+    });
   }
 
   private formatTime(date: Date): string {
@@ -207,7 +244,7 @@ export class MailService {
     to: string,
     subject: string,
     html: string,
-    attachments?: { filename: string; content: string }[],
+    attachments?: EmailAttachment[],
   ) {
     if (!this.resend) {
       this.logger.warn(
@@ -216,14 +253,33 @@ export class MailService {
       return;
     }
 
+    // Le logo n'accompagne que les emails qui l'affichent : ailleurs, il
+    // apparaîtrait comme une pièce jointe orpheline.
+    const allAttachments =
+      this.logoAttachment && html.includes(`cid:${LOGO_CONTENT_ID}`)
+        ? [...(attachments ?? []), this.logoAttachment]
+        : attachments;
+
     try {
-      await this.resend.emails.send({
+      const { data, error } = await this.resend.emails.send({
         from: this.from,
         to,
         subject,
         html,
-        attachments,
+        attachments: allAttachments,
       });
+
+      // Resend ne lève pas d'exception quand il refuse un envoi (domaine non
+      // vérifié, adresse invalide, quota) : sans lire l'erreur renvoyée,
+      // l'email disparaîtrait sans laisser la moindre trace dans les logs.
+      if (error) {
+        this.logger.error(
+          `Échec d'envoi d'email à ${to} — ${error.name}: ${error.message}`,
+        );
+        return;
+      }
+
+      this.logger.log(`Email « ${subject} » envoyé à ${to} (${data?.id})`);
     } catch (error) {
       this.logger.error(
         `Échec d'envoi d'email à ${to}: ${(error as Error).message}`,
