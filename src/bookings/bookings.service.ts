@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { addMinutes } from 'date-fns';
 import type { Booking, Service } from '../../generated/prisma/client';
@@ -45,6 +46,7 @@ export class BookingsService {
         include: { service: true },
       });
       if (existing) {
+        assertSameRequest(existing, dto);
         return { booking: existing, isNew: false };
       }
     }
@@ -124,6 +126,7 @@ export class BookingsService {
           include: { service: true },
         });
         if (winner) {
+          assertSameRequest(winner, dto);
           return { booking: winner, isNew: false };
         }
       }
@@ -243,6 +246,24 @@ export class BookingsService {
       }
       throw error;
     }
+  }
+}
+
+/**
+ * Une Idempotency-Key ne rejoue que la demande qui l'a créée. Réutilisée pour
+ * un autre créneau ou un autre client, on renvoyait l'ancienne réservation :
+ * l'écran disait « confirmé » alors que rien n'était créé ni envoyé.
+ */
+function assertSameRequest(existing: Booking, dto: CreateBookingDto): void {
+  const sameRequest =
+    existing.serviceId === dto.serviceId &&
+    existing.startsAt.getTime() === new Date(dto.startsAt).getTime() &&
+    existing.customerEmail.trim().toLowerCase() ===
+      dto.customerEmail.trim().toLowerCase();
+  if (!sameRequest) {
+    throw new UnprocessableEntityException(
+      'Cette demande de réservation a expiré, merci de recharger la page et de réessayer',
+    );
   }
 }
 
