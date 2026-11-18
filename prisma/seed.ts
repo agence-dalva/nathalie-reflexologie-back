@@ -95,6 +95,14 @@ const services = [
     bufferMinutes: 10,
     price: 30,
   },
+  {
+    name: 'Massage drainage lymphatique manuel',
+    description:
+      'Massage doux, lent et rythmé qui favorise la circulation lymphatique, 1h15.',
+    durationMinutes: 75,
+    bufferMinutes: 15,
+    price: 90,
+  },
 ];
 
 async function main() {
@@ -116,18 +124,17 @@ async function main() {
     console.log(`Compte admin créé : ${admin.email}`);
   }
 
-  let created = 0;
-  for (const service of services) {
-    const existing = await prisma.service.findFirst({
-      where: { name: service.name },
-    });
-    if (!existing) {
-      await prisma.service.create({ data: service });
-      created++;
-    }
+  // La seed tourne à chaque déploiement : une fois la base peuplée, les prestations
+  // appartiennent au back-office. Les recréer par nom ferait réapparaître celles
+  // qu'on a renommées ou supprimées.
+  const existingCount = await prisma.service.count();
+  if (existingCount > 0) {
+    console.log(`${existingCount} prestation(s) déjà en base, aucune créée.`);
+    return;
   }
 
-  console.log(`${created} nouvelle(s) prestation(s) créée(s) sur ${services.length} définies.`);
+  await prisma.service.createMany({ data: services });
+  console.log(`${services.length} prestation(s) créée(s).`);
 }
 
 main()
